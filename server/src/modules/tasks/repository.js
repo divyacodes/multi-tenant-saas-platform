@@ -208,27 +208,54 @@ export const updateTask = async ({
   userId 
 }) => {
   return await withTransaction(async (client) => {
+    const setClauses = [];
+    const values = [];
+    let idx = 1;
+
+    if (title !== undefined && title !== null) {
+      setClauses.push(`title = $${idx++}`);
+      values.push(title.trim());
+    }
+    if (description !== undefined) {
+      setClauses.push(`description = $${idx++}`);
+      values.push(description);
+    }
+    if (status !== undefined && status !== null) {
+      setClauses.push(`status = $${idx++}`);
+      values.push(status);
+    }
+    if (priority !== undefined && priority !== null) {
+      setClauses.push(`priority = $${idx++}`);
+      values.push(priority);
+    }
+    if (assignedTo !== undefined) {
+      setClauses.push(`assigned_to = $${idx++}`);
+      values.push(assignedTo || null);
+    }
+    if (dueDate !== undefined) {
+      setClauses.push(`due_date = $${idx++}`);
+      values.push(dueDate || null);
+    }
+
+    if (setClauses.length === 0) {
+      const existing = await client.query(
+        `SELECT * FROM tasks WHERE id = $1 AND organization_id = $2;`,
+        [taskId, orgId]
+      );
+      return existing.rows[0] || null;
+    }
+
+    values.push(taskId);
+    const taskIdIdx = idx++;
+    values.push(orgId);
+    const orgIdIdx = idx++;
+
     const res = await client.query(
       `UPDATE tasks
-       SET 
-         title = COALESCE($1, title),
-         description = CASE WHEN $2 IS NOT NULL THEN $2 ELSE description END,
-         status = COALESCE($3, status),
-         priority = COALESCE($4, priority),
-         assigned_to = CASE WHEN $5 IS NOT NULL THEN $5 ELSE assigned_to END,
-         due_date = CASE WHEN $6 IS NOT NULL THEN $6 ELSE due_date END
-       WHERE id = $7 AND organization_id = $8
+       SET ${setClauses.join(', ')}
+       WHERE id = $${taskIdIdx} AND organization_id = $${orgIdIdx}
        RETURNING *;`,
-      [
-        title ? title.trim() : null,
-        description !== undefined ? description : null,
-        status || null,
-        priority || null,
-        assignedTo !== undefined ? assignedTo : null,
-        dueDate !== undefined ? dueDate : null,
-        taskId,
-        orgId
-      ]
+      values
     );
 
     const task = res.rows[0];
@@ -237,7 +264,7 @@ export const updateTask = async ({
     await client.query(
       `INSERT INTO audit_logs (organization_id, actor_user_id, action, entity_type, entity_id, metadata)
        VALUES ($1, $2, 'TASK_UPDATED', 'TASK', $3, $4);`,
-      [orgId, userId, taskId, JSON.stringify({ title: task.title, status, priority })]
+      [orgId, userId, taskId, JSON.stringify({ title: task.title, status: task.status, priority: task.priority })]
     );
 
     return task;

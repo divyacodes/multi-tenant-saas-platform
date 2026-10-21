@@ -111,21 +111,42 @@ export const createProject = async ({ orgId, name, description, status, userId }
 
 export const updateProject = async ({ projectId, orgId, name, description, status, userId }) => {
   return await withTransaction(async (client) => {
+    const setClauses = [];
+    const values = [];
+    let idx = 1;
+
+    if (name !== undefined && name !== null) {
+      setClauses.push(`name = $${idx++}`);
+      values.push(name.trim());
+    }
+    if (description !== undefined) {
+      setClauses.push(`description = $${idx++}`);
+      values.push(description);
+    }
+    if (status !== undefined && status !== null) {
+      setClauses.push(`status = $${idx++}`);
+      values.push(status);
+    }
+
+    if (setClauses.length === 0) {
+      const existing = await client.query(
+        `SELECT id, organization_id, name, description, status, created_at, updated_at FROM projects WHERE id = $1 AND organization_id = $2;`,
+        [projectId, orgId]
+      );
+      return existing.rows[0] || null;
+    }
+
+    values.push(projectId);
+    const projIdIdx = idx++;
+    values.push(orgId);
+    const orgIdIdx = idx++;
+
     const res = await client.query(
       `UPDATE projects
-       SET 
-         name = COALESCE($1, name),
-         description = COALESCE($2, description),
-         status = COALESCE($3, status)
-       WHERE id = $4 AND organization_id = $5
+       SET ${setClauses.join(', ')}
+       WHERE id = $${projIdIdx} AND organization_id = $${orgIdIdx}
        RETURNING id, organization_id, name, description, status, created_at, updated_at;`,
-      [
-        name ? name.trim() : null, 
-        description !== undefined ? description : null, 
-        status || null, 
-        projectId, 
-        orgId
-      ]
+      values
     );
 
     const project = res.rows[0];
@@ -134,7 +155,7 @@ export const updateProject = async ({ projectId, orgId, name, description, statu
     await client.query(
       `INSERT INTO audit_logs (organization_id, actor_user_id, action, entity_type, entity_id, metadata)
        VALUES ($1, $2, 'PROJECT_UPDATED', 'PROJECT', $3, $4);`,
-      [orgId, userId, projectId, JSON.stringify({ name, status })]
+      [orgId, userId, projectId, JSON.stringify({ name: project.name, status: project.status })]
     );
 
     return project;
