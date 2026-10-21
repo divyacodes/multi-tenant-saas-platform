@@ -21,5 +21,36 @@ services:
       timeout: 5s
       retries: 5
 
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: saas_server
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      NODE_ENV: production
+      PORT: 5001
+      DATABASE_URL: postgresql://postgres:postgrespassword@postgres:5432/saas_db
+      JWT_SECRET: super_secure_multi_tenant_saas_jwt_secret_key_2026_dev
+      JWT_EXPIRES_IN: 7d
+      CLIENT_URL: http://localhost:5173
+      COOKIE_SECRET: super_secure_cookie_signing_secret_key_2026_dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: saas_client
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - server
+
 volumes:
   saas_pg_data:
